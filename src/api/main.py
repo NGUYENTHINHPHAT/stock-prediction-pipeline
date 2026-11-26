@@ -14,6 +14,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import json
+import hashlib
 
 TRAINING_DISABLED = os.environ.get("DISABLE_TRAINING", "").lower() == "true"
 
@@ -28,6 +29,18 @@ from src.models.trainer import ModelTrainer
 # Paths for templates and static files
 _BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(_BASE_DIR / "templates"))
+
+
+def _asset_version() -> str:
+    """Short hash of the static assets, appended as ?v=... so browsers refetch after a deploy."""
+    h = hashlib.sha256()
+    for f in sorted((_BASE_DIR / "static").rglob("*")):
+        if f.is_file():
+            h.update(f.read_bytes())
+    return h.hexdigest()[:10]
+
+
+ASSET_VERSION = _asset_version()
 
 BACKTEST_PATH = Path("results/backtest_summary.json")
 
@@ -199,7 +212,8 @@ async def dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "training_enabled": not TRAINING_DISABLED,
-    })
+        "asset_version": ASSET_VERSION,
+    }, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/training/status")
