@@ -27,7 +27,6 @@ wheels/
 .env
 .env.local
 
-# Claude Code
 
 # IDEs
 .vscode/
@@ -69,3 +68,6 @@ htmlcov/
 
 # Docker
 *.pid
+
+# Backtest outputs (report + chart are committed)
+results/oos_predictions.csv

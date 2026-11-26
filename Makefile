@@ -1,10 +1,11 @@
-.PHONY: help install train serve example docker-build docker-up docker-down clean test deploy
+.PHONY: help install train backtest serve example docker-build docker-up docker-down clean test deploy
 
 help:
 	@echo "Stock Prediction Pipeline - Available Commands"
 	@echo "================================================"
 	@echo "install       - Install dependencies"
 	@echo "train         - Train the model"
+	@echo "backtest      - Backtest vs baselines (results/)"
 	@echo "serve         - Start API server"
 	@echo "example       - Run simple example"
 	@echo "docker-build  - Build Docker image"
@@ -18,6 +19,9 @@ install:
 	pip install -r requirements.txt
 	cp .env.example .env
 	@echo "Installation complete! Edit .env file with your configuration."
+
+backtest:
+	python backtest.py
 
 train:
 	python train.py

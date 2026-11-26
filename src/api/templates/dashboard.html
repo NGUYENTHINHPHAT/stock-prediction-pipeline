@@ -10,7 +10,7 @@
     <header>
         <div class="container">
             <h1>Tech Stock Prediction <span class="accent">Dashboard</span></h1>
-            <p class="subtitle">XGBoost model trained on technical indicators for 5 large-cap tech stocks</p>
+            <p class="subtitle">XGBoost on technical &amp; market features for 5 large-cap tech stocks &mdash; evaluated with a purged walk-forward backtest, naive baselines and significance tests</p>
         </div>
     </header>
 
@@ -30,6 +30,39 @@
             <span id="error-message"></span>
             <button class="error-close" onclick="dismissError()">&times;</button>
         </div>
+
+        <!-- Backtest: does the model work? -->
+        <section id="backtest-section" class="card backtest-card hidden">
+            <div class="section-head">
+                <h2>Does the model work? <span class="muted-inline">Out-of-sample backtest</span></h2>
+                <p class="results-meta" id="bt-meta"></p>
+            </div>
+
+            <div id="bt-verdict" class="verdict"></div>
+
+            <div class="kpi-row" id="bt-kpis"></div>
+
+            <div class="chart-block">
+                <h3>Growth of $1, net of costs</h3>
+                <div class="chart-legend" id="bt-legend"></div>
+                <div class="chart-wrap" id="bt-chart">
+                    <div class="chart-tooltip hidden" id="bt-tooltip"></div>
+                </div>
+            </div>
+
+            <div class="table-grid">
+                <div>
+                    <h3>Classification vs naive baselines</h3>
+                    <table class="data-table" id="bt-clf-table"></table>
+                </div>
+                <div>
+                    <h3>Strategies <span class="muted-inline">net of costs</span></h3>
+                    <table class="data-table" id="bt-strat-table"></table>
+                </div>
+            </div>
+
+            <p class="method-note" id="bt-method"></p>
+        </section>
 
         <!-- Model Status Card -->
         <section class="card model-status-card">
@@ -82,6 +115,7 @@
         <section id="results-section" class="hidden">
             <h2>Prediction Results</h2>
             <p class="results-meta" id="results-meta"></p>
+            <p class="results-note" id="results-note"></p>
             <div id="results-grid" class="results-grid"></div>
         </section>
     </main>

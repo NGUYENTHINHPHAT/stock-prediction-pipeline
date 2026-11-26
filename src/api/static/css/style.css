@@ -413,3 +413,162 @@ footer {
         grid-template-columns: 1fr;
     }
 }
+
+/* ===== Backtest panel ===== */
+:root {
+    /* Chart series — validated categorical slots for the dark card surface */
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --grid: #262a37;
+}
+
+.section-head h2 { margin-bottom: 2px; }
+.muted-inline { color: var(--text-muted); font-weight: 400; font-size: 0.85rem; margin-left: 6px; }
+
+.backtest-card h3 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 10px;
+}
+
+.verdict {
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+    border-left: 3px solid;
+    color: var(--text);
+}
+.verdict-fail { background: var(--amber-bg); border-color: var(--amber); }
+.verdict-pass { background: var(--green-bg); border-color: var(--green); }
+
+.kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+.kpi {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+}
+.kpi-label { color: var(--text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.kpi-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; margin: 2px 0; }
+.kpi-sub { color: var(--text-muted); font-size: 0.78rem; line-height: 1.4; }
+.kpi-flag { font-weight: 700; margin-right: 6px; }
+.flag-bad { color: var(--red); }
+.flag-good { color: var(--green); }
+
+.chart-block { margin-bottom: 24px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-swatch { display: inline-block; width: 14px; height: 3px; border-radius: 2px; background: var(--text-muted); }
+.legend-swatch.s1 { background: var(--series-1); }
+.legend-swatch.s2 { background: var(--series-2); }
+.legend-swatch.s3 { background: var(--series-3); }
+
+.chart-wrap { position: relative; }
+.equity-svg { width: 100%; height: auto; display: block; }
+.equity-svg .grid-line { stroke: var(--grid); stroke-width: 1; }
+.equity-svg .grid-base { stroke: #3a3e4d; stroke-dasharray: 3 3; }
+.equity-svg .axis-tick { stroke: #3a3e4d; }
+.equity-svg .axis-label { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.equity-svg .end-label { fill: var(--text); font-size: 11px; font-weight: 600; }
+.equity-svg .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.equity-svg .series-line.s1, .equity-svg .hover-dot.s1 { stroke: var(--series-1); }
+.equity-svg .series-line.s2, .equity-svg .hover-dot.s2 { stroke: var(--series-2); }
+.equity-svg .series-line.s3, .equity-svg .hover-dot.s3 { stroke: var(--series-3); }
+.equity-svg .hover-dot.s1 { fill: var(--series-1); }
+.equity-svg .hover-dot.s2 { fill: var(--series-2); }
+.equity-svg .hover-dot.s3 { fill: var(--series-3); }
+.equity-svg .hover-dot { stroke: var(--bg-card) !important; stroke-width: 2; fill-opacity: 1; }
+.equity-svg .hover-dot.s1 { stroke: var(--bg-card); }
+.equity-svg .crosshair { stroke: var(--text-muted); stroke-width: 1; }
+.equity-svg rect:focus { outline: none; }
+.equity-svg .hidden { display: none; }
+
+.chart-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: #0b0d12;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    min-width: 170px;
+    box-shadow: var(--shadow);
+}
+.tt-head { color: var(--text-muted); margin-bottom: 4px; }
+.tt-row { display: flex; align-items: center; gap: 8px; }
+.tt-row strong { font-variant-numeric: tabular-nums; min-width: 44px; }
+.tt-row span:last-child { color: var(--text-muted); }
+
+.table-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 24px;
+    margin-bottom: 16px;
+}
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.data-table th {
+    text-align: left;
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+.data-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); }
+.data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table .row-hl td { background: rgba(108, 99, 255, 0.10); font-weight: 600; }
+
+.method-note { color: var(--text-muted); font-size: 0.78rem; line-height: 1.5; }
+
+/* ===== Prediction cards: base-rate framing ===== */
+.results-note {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin: -8px 0 16px;
+    max-width: 760px;
+}
+.rank-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2px 10px;
+}
+.pup-row { display: flex; align-items: baseline; gap: 8px; }
+.pup-row .probability { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pup-label { color: var(--text-muted); font-size: 0.8rem; }
+
+.edge-meter { position: relative; height: 14px; margin: 8px 0 12px; }
+.edge-track { position: absolute; top: 6px; left: 0; right: 0; height: 2px; background: var(--border); border-radius: 2px; }
+.edge-base { position: absolute; top: 1px; width: 2px; height: 12px; background: var(--text-muted); transform: translateX(-1px); }
+.edge-dot {
+    position: absolute; top: 2px; width: 10px; height: 10px; border-radius: 50%;
+    transform: translateX(-5px); border: 2px solid var(--bg-card);
+    background: var(--text-muted);
+}
+.edge-dot.up { background: var(--green); }
+.edge-dot.down { background: var(--red); }
+
+.edge-text { font-size: 0.82rem; color: var(--text-muted); }
+.edge-text strong { font-variant-numeric: tabular-nums; }
+.edge-up { color: var(--green); }
+.edge-down { color: var(--red); }
+.edge-flat { color: var(--text); }
+
+.signal-none { background: rgba(139, 143, 163, 0.15); color: var(--text-muted); }
+/* Neutral tones on purpose: a tilt vs base rate is not a buy signal (backtest found no edge). */
+.signal-weak { background: rgba(139, 143, 163, 0.15); color: var(--text); }
+.signal-moderate { background: rgba(108, 99, 255, 0.18); color: #b3adff; }
+.result-details .confidence-badge { white-space: nowrap; }

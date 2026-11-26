@@ -22,7 +22,7 @@ The model is trained on **5 large-cap tech stocks**: AAPL, MSFT, GOOGL, AMZN, TS
 
 Predictions are **5 trading days ahead** (weekly direction).
 
-Features include both technical indicators and external market signals (VIX, SPY, XLK sector ETF, earnings proximity). Expected test accuracy is 52–58% — this is the honest, expected result for large-cap equities due to the Efficient Market Hypothesis. See [Performance Expectations](#-performance-expectations) for more.
+Features include both technical indicators and external market signals (VIX, SPY, XLK sector ETF, earnings proximity). The project's focus is **honest evaluation**: a purged walk-forward backtest with transaction costs, naive baselines, and significance tests. The conclusion is that these features do **not** carry a statistically significant edge on large-cap tech. See [Backtest Results](#-backtest-results).
 
 ## 🎯 Features
 
@@ -31,6 +31,9 @@ Features include both technical indicators and external market signals (VIX, SPY
 - **External Market Signals**: VIX fear index, SPY/XLK returns, days to next earnings
 - **Hyperparameter Tuning**: Optuna-based search with 50+ trials, saves best params automatically
 - **Walk-Forward Validation**: 5-fold expanding-window cross-validation for honest performance estimates
+- **Backtest with Costs**: Long/flat and market-neutral strategies vs buy-and-hold, momentum and logistic-regression baselines — Sharpe, drawdown, turnover, cost sensitivity
+- **Significance Testing**: Permutation tests for overall skill (AUC) and stock-picking skill (weekly rank IC), plus a block-bootstrap CI on the Sharpe difference
+- **Research Dashboard**: Shows the backtest verdict, equity curves and baselines next to live predictions, with each P(up) set against the stock's historical base rate
 - **Time-Series Safe**: Chronological train/val/test split, no data leakage
 - **XGBoost Classifier**: Binary classification (UP/DOWN), probability output with confidence labels
 - **Web Dashboard**: Built-in browser UI — pick from the 5 supported stocks
@@ -201,6 +204,15 @@ python validate.py --no-params  # XGBoost defaults
 
 Reports per-fold and average accuracy/precision/AUC with std across market regimes. Does **not** save a model — purely diagnostic.
 
+### `backtest.py` — Strategy backtest vs baselines
+
+```bash
+python backtest.py                                  # 10 bps costs, P(up) > 0.55
+python backtest.py --cost-bps 5 --threshold 0.6
+```
+
+Purged walk-forward predictions → weekly non-overlapping rebalances → net-of-cost returns. Writes `results/backtest_report.md`, `results/backtest_summary.json` and `results/equity_curve.png`.
+
 ### `check_importance.py` — Feature importance
 
 ```bash
@@ -252,7 +264,8 @@ Training uses 5 years of data to learn patterns. Predicting uses only the **last
 ### Preventing Data Leakage
 
 - Chronological split only — no shuffling
-- A gap equal to the prediction horizon (5 days) between train end and test start in walk-forward folds
+- **Purged splits by date, not by row** (`backtest.py`): all symbols for a day land in the same fold, and a gap of `horizon` trading days separates train from test, so no training label overlaps the test period
+- In the stock-picking (rank IC) test, returns are shuffled only *within* each date, so market-wide up/down weeks can't masquerade as skill
 - External features fetched using only past data at each point in time
 
 ## 📊 API Endpoints
@@ -282,24 +295,54 @@ Each run stores:
 - **Metrics**: accuracy, precision, AUC for train / val / test splits
 - **Artifacts**: `feature_importance.csv`, trained model pickle
 
-## 📉 Performance Expectations
+## 📉 Backtest Results
 
-| Metric | Typical range |
+Out-of-sample **Nov 2022 → Nov 2026**, 5 stocks, 5-fold purged walk-forward, 5-day horizon, weekly non-overlapping rebalances, **10 bps** cost per unit turnover. Full report: [`results/backtest_report.md`](results/backtest_report.md).
+
+![Out-of-sample equity curves](results/equity_curve.png)
+
+**Does the model beat naive baselines?**
+
+| Model | Accuracy | AUC |
+|---|---|---|
+| Always predict UP | **55.2%** | 0.500 |
+| Momentum (sign of 5d return) | 50.6% | 0.495 |
+| Logistic regression | 48.5% | 0.492 |
+| XGBoost (tuned) | 49.4% | 0.496 |
+
+**Does it make money after costs?**
+
+| Strategy | Net Sharpe | CAGR | Max DD | Avg exposure |
+|---|---|---|---|---|
+| Buy & hold (equal weight) | **1.22** | **30.9%** | -26.2% | 100% |
+| Momentum long/flat | 0.72 | 10.6% | -18.9% | 56% |
+| LogReg long/flat | 0.31 | 2.5% | -15.3% | 34% |
+| XGBoost long/flat (P > 0.55) | 0.39 | 1.6% | **-8.4%** | 10% |
+| XGBoost long/short rank | -0.39 | -5.7% | -33.2% | 100% |
+
+**Is the edge real?**
+- **Overall skill.** Permutation test on AUC over non-overlapping weeks: AUC 0.498, **p = 0.54**.
+- **Stock-picking skill.** Mean weekly rank IC (Spearman correlation of score vs. forward return across the 5 stocks), with returns shuffled within each date: IC −0.008, **p = 0.62**.
+- **Block bootstrap**, Sharpe(XGBoost long/flat) − Sharpe(buy & hold): **−0.83, 95% CI [−2.02, +0.28]**.
+- No VIX regime (low / mid / high) shows AUC meaningfully above 0.5.
+
+### Interpretation
+
+- **The model has no detectable edge.** It loses to "always predict UP" on accuracy, and its AUC is within noise of 0.5. In a 4-year bull market for mega-cap tech, the base rate *is* the signal.
+- **The model mostly sits in cash.** It's invested only 10% of the time, which explains its small drawdown. That isn't skill: it earns 1.6% a year against 30.9% for buy & hold.
+- **The market-neutral version is the cleanest test of stock-picking skill**, since it removes market direction. It loses money, which matches the slightly negative rank IC.
+- **Tuning can't rescue it.** Retuning on 5 years of data, early stopping keeps only ~3 trees, because extra trees don't improve validation loss. With that few trees, many stocks get identical probabilities.
+- **Testing the test.** An earlier version shuffled labels within each date but reported a pooled AUC. That mismatch once produced "p = 0.02" for an AUC *below* 0.5. Splitting it into two tests, each statistic matched to its own null, fixed it.
+- **Why earlier numbers looked better (52–57%):** three likely contributors. (1) `validate.py` splits by *row* with a 5-row gap; with 5 symbols per day, that's about 1 day against a 5-day label, so boundary labels overlap. (2) Hyperparameters were chosen by Optuna on the same history, which adds selection bias. (3) A single short test window is noisy, with ±3pp swings between folds. `backtest.py` splits by date with a full horizon purge and reports results across 4 years.
+
+This matches what the Efficient Market Hypothesis predicts for public technical indicators on the most heavily traded stocks in the world. A model claiming 80%+ accuracy here almost certainly has leakage.
+
+**What could plausibly add signal:** a wider cross-section (100+ stocks) with a ranking target, excess-vs-sector returns instead of raw direction, alternative data (earnings surprises, news sentiment, options-implied skew), or less efficient universes (small caps).
+
+| Ops metric | Value |
 |---|---|
-| Test Accuracy | 52–57% |
-| Test Precision | 52–58% |
-| Test AUC | 0.51–0.55 |
 | Training time | 3–10 min (with tuning) |
 | Prediction latency | < 200ms |
-
-**Why not higher?** Large-cap tech stocks (AAPL, MSFT, GOOGL, AMZN, TSLA) are the most heavily analysed equities in the world. Any signal from standard technical indicators is arbitraged away almost instantly by institutional quant funds. An honest 52–57% test precision with no overfitting is the correct, expected result — not a failure.
-
-A model claiming 80%+ accuracy on this problem almost certainly has data leakage.
-
-**What would improve it:**
-- Alternative data: news sentiment, options flow, earnings surprises
-- Less-efficient markets: mid/small-cap stocks
-- Intraday data with microstructure features
 
 ## 🔧 Configuration
 

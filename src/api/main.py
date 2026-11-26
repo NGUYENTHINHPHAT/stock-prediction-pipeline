@@ -13,6 +13,7 @@ import os
 import pandas as pd
 import numpy as np
 from pathlib import Path
+import json
 
 TRAINING_DISABLED = os.environ.get("DISABLE_TRAINING", "").lower() == "true"
 
@@ -27,6 +28,29 @@ from src.models.trainer import ModelTrainer
 # Paths for templates and static files
 _BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(_BASE_DIR / "templates"))
+
+BACKTEST_PATH = Path("results/backtest_summary.json")
+
+
+def load_backtest_summary() -> Optional[dict]:
+    """Load the out-of-sample backtest produced by backtest.py (if present)."""
+    if not BACKTEST_PATH.exists():
+        log.warning(f"{BACKTEST_PATH} not found — run `python backtest.py` to populate the dashboard")
+        return None
+    try:
+        return json.loads(BACKTEST_PATH.read_text())
+    except Exception as e:
+        log.error(f"Failed to load backtest summary: {e}")
+        return None
+
+
+def signal_label(edge: float) -> str:
+    """Describe how far P(up) sits from the historical base rate (edge in probability units)."""
+    a = abs(edge)
+    if a < 0.03:
+        return "no edge"
+    return "weak tilt" if a < 0.08 else "moderate tilt"
+
 
 @asynccontextmanager
 async def lifespan(app):
@@ -53,6 +77,8 @@ async def lifespan(app):
             state.model = None
     else:
         log.warning("No trained model found. Use /train endpoint to train a model.")
+
+    state.backtest = load_backtest_summary()
 
     yield
 
@@ -87,6 +113,7 @@ class ModelState:
         self.is_ready: bool = False
         self.training_in_progress: bool = False
         self.training_error: Optional[str] = None
+        self.backtest: Optional[dict] = None
 
 state = ModelState()
 
@@ -109,8 +136,13 @@ class PredictionResult(BaseModel):
     current_price: float
     predicted_direction: int  # 0 = down, 1 = up
     probability: float
-    confidence: str  # "high", "medium", "low"
+    confidence: str  # "high", "medium", "low" (absolute probability; kept for API compatibility)
     timestamp: datetime
+    p_up: float = Field(..., description="Model probability the stock is up after the horizon")
+    base_rate: float = Field(..., description="Historical share of up-moves over the horizon (out-of-sample period)")
+    edge: float = Field(..., description="p_up minus base_rate")
+    rank: int = Field(..., description="Rank by p_up among the requested symbols (1 = most bullish)")
+    signal: str = Field(..., description="Size of the edge vs base rate: 'no edge', 'weak', 'moderate'")
 
 
 class PredictionResponse(BaseModel):
@@ -186,6 +218,14 @@ async def training_status():
     return {"status": "idle", "message": "No model trained yet."}
 
 
+@app.get("/backtest")
+async def backtest_results():
+    """Out-of-sample backtest vs baselines (generated offline by backtest.py)."""
+    if state.backtest is None:
+        raise HTTPException(status_code=404, detail="No backtest results. Run `python backtest.py`.")
+    return state.backtest
+
+
 # Prediction endpoint
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: PredictionRequest):
@@ -239,12 +279,19 @@ async def predict(request: PredictionRequest):
         predictions = state.model.predict(X)
         probabilities = state.model.predict_proba(X)[:, 1]
         
+        # Historical base rates from the backtest; 0.5 if no backtest has been run.
+        bt = state.backtest or {}
+        overall_base = float(bt.get('base_rate', 0.5))
+        base_by_symbol = bt.get('base_rate_by_symbol', {})
+        ranks = (-pd.Series(probabilities)).rank(method='min').astype(int).tolist()
+
         # Prepare response
         results = []
         for idx, row in latest_data.iterrows():
             symbol_idx = latest_data.index.get_loc(idx)
             prob = float(probabilities[symbol_idx])
             pred = int(predictions[symbol_idx])
+            base = float(base_by_symbol.get(row['symbol'], overall_base))
 
             # Show probability of the predicted direction, not always P(up)
             display_prob = prob if pred == 1 else 1 - prob
@@ -264,7 +311,12 @@ async def predict(request: PredictionRequest):
                     predicted_direction=pred,
                     probability=display_prob,
                     confidence=confidence,
-                    timestamp=datetime.now()
+                    timestamp=datetime.now(),
+                    p_up=prob,
+                    base_rate=base,
+                    edge=prob - base,
+                    rank=ranks[symbol_idx],
+                    signal=signal_label(prob - base),
                 )
             )
         
