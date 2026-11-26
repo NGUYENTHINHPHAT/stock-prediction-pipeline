@@ -8,11 +8,20 @@ jobs:
   sync-to-hub:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          lfs: true
+      - uses: actions/checkout@v4
+
+      # HF Spaces reject binary images unless stored with Xet/LFS. The Space doesn't
+      # need them (the dashboard draws its own charts), so deploy a single snapshot
+      # commit of the current tree without *.png instead of the full git history.
+      - name: Build deploy snapshot
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git checkout --orphan hf-deploy
+          git rm -r --cached --quiet --ignore-unmatch -- '*.png'
+          git commit --quiet -m "Deploy ${GITHUB_SHA::7}"
+
       - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: git push --force https://PhatNguyen39:$HF_TOKEN@huggingface.co/spaces/PhatNguyen39/Stock-Prediction-Pipeline main
+        run: git push --force https://PhatNguyen39:$HF_TOKEN@huggingface.co/spaces/PhatNguyen39/Stock-Prediction-Pipeline hf-deploy:main
