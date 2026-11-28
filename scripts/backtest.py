@@ -1,7 +1,7 @@
 """
 Backtest the model against naive baselines, net of transaction costs.
 
-Answers the questions an interviewer actually asks:
+Answers the questions that decide whether a signal is real:
   * Does the model beat "always predict UP" and simple momentum?
   * Does the edge survive transaction costs?
   * Is it statistically distinguishable from luck?
@@ -13,8 +13,8 @@ Outputs (in results/):
   equity_curve.png
 
 Usage:
-    python backtest.py
-    python backtest.py --cost-bps 10 --folds 5 --threshold 0.55
+    python -m scripts.backtest
+    python -m scripts.backtest --cost-bps 10 --folds 5 --threshold 0.55
 """
 import argparse
 import json
@@ -32,7 +32,7 @@ from src.evaluation.backtest import (
 )
 from src.utils.config import settings
 from src.utils.logger import log
-from validate import load_data
+from src.pipeline import build_dataset, load_params
 
 RESULTS = Path("results")
 
@@ -45,12 +45,8 @@ def main(symbols, n_splits, cost_bps, threshold, params_file):
     H = settings.prediction_horizon
     RESULTS.mkdir(exist_ok=True)
 
-    params = None
-    if Path(params_file).exists():
-        params = json.loads(Path(params_file).read_text())
-        log.info(f"Using XGBoost params from {params_file}")
-
-    df = load_data(symbols)
+    params = load_params(params_file)
+    df = build_dataset(symbols)
     preds = generate_oos_predictions(df, xgb_params=params, n_splits=n_splits, horizon=H)
     preds.to_csv(RESULTS / "oos_predictions.csv", index=False)
 

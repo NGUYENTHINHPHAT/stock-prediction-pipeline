@@ -15,6 +15,7 @@ import numpy as np
 from pathlib import Path
 import json
 import hashlib
+import time
 
 TRAINING_DISABLED = os.environ.get("DISABLE_TRAINING", "").lower() == "true"
 
@@ -24,11 +25,14 @@ from src.data.fetcher import DataFetcher
 from src.data.features import FeatureEngineer
 from src.data.validator import DataValidator
 from src.models.xgboost_model import XGBoostModel
-from src.models.trainer import ModelTrainer
+from src.pipeline import build_dataset, load_params, train_and_save
 
 # Paths for templates and static files
 _BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(_BASE_DIR / "templates"))
+
+
+_STARTED_AT = time.monotonic()
 
 
 def _asset_version() -> str:
@@ -46,9 +50,9 @@ BACKTEST_PATH = Path("results/backtest_summary.json")
 
 
 def load_backtest_summary() -> Optional[dict]:
-    """Load the out-of-sample backtest produced by backtest.py (if present)."""
+    """Load the out-of-sample backtest produced by `make backtest` (if present)."""
     if not BACKTEST_PATH.exists():
-        log.warning(f"{BACKTEST_PATH} not found — run `python backtest.py` to populate the dashboard")
+        log.warning(f"{BACKTEST_PATH} not found — run `make backtest` to populate the dashboard")
         return None
     try:
         return json.loads(BACKTEST_PATH.read_text())
@@ -69,10 +73,9 @@ def signal_label(edge: float) -> str:
 async def lifespan(app):
     """Initialize model on startup"""
     log.info("Starting Stock Prediction API")
-    log.info(f"Configuration: {settings.model_type}")
 
     # Initialize components
-    state.data_fetcher = DataFetcher(use_alpaca=False)
+    state.data_fetcher = DataFetcher()
     state.feature_engineer = FeatureEngineer(window=settings.feature_window)
 
     # Try to load existing model
@@ -189,14 +192,12 @@ class TrainingStatus(BaseModel):
 @app.get("/", response_model=HealthResponse)
 async def root():
     """Health check endpoint"""
-    import time
-    
     return HealthResponse(
         status="healthy" if state.is_ready else "not_ready",
         model_loaded=state.model is not None and state.is_ready,
         model_name=state.model.model_name if state.model else None,
         last_trained=state.last_trained,
-        uptime_seconds=time.time()  # Simplified, in production use actual start time
+        uptime_seconds=time.monotonic() - _STARTED_AT
     )
 
 
@@ -234,9 +235,9 @@ async def training_status():
 
 @app.get("/backtest")
 async def backtest_results():
-    """Out-of-sample backtest vs baselines (generated offline by backtest.py)."""
+    """Out-of-sample backtest vs baselines (generated offline by `make backtest`)."""
     if state.backtest is None:
-        raise HTTPException(status_code=404, detail="No backtest results. Run `python backtest.py`.")
+        raise HTTPException(status_code=404, detail="No backtest results. Run `make backtest`.")
     return state.backtest
 
 
@@ -283,11 +284,8 @@ async def predict(request: PredictionRequest):
         latest_data = df_features.sort_values('date').groupby('symbol').tail(1)
         
         # Prepare features for prediction
-        exclude_cols = [
-            'date', 'symbol', 'open', 'high', 'low', 'close', 'volume'
-        ]
-        feature_cols = [col for col in latest_data.columns if col not in exclude_cols]
-        X = latest_data[feature_cols]
+        # Use exactly the columns (and order) the model was trained on
+        X = latest_data[state.model.feature_names]
         
         # Make predictions
         predictions = state.model.predict(X)
@@ -384,49 +382,11 @@ async def run_training():
     try:
         log.info("Starting model training")
         
-        # Fetch data
-        fetcher = DataFetcher(use_alpaca=False)
-        df = fetcher.fetch()
-        
-        # Validate and clean
-        validator = DataValidator()
-        df = validator.clean_data(df)
-        
-        # Engineer features
-        feature_engineer = FeatureEngineer(window=settings.feature_window)
-        df_features = feature_engineer.engineer_features(
-            df,
-            create_target=True,
-            target_horizon=settings.prediction_horizon
-        )
-        
-        # Train model
-        model = XGBoostModel(model_name="xgboost")
-        trainer = ModelTrainer(mlflow_tracking=True)
-        
-        metrics = trainer.train_model(
-            model=model,
-            df=df_features,
-            target_col='target_direction',
-            train_size=0.7,
-            val_size=0.15,
-            log_mlflow=True
-        )
-        
-        # Save model
-        model_path = Path("models/saved")
-        model_path.mkdir(parents=True, exist_ok=True)
-        
-        # Save with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        model.save(f"models/saved/model_{timestamp}.pkl")
-        
-        # Save as latest
-        model.save("models/saved/latest_model.pkl")
-        
+        df_features = build_dataset()
+        model, metrics = train_and_save(df_features, params=load_params())
+
         # Update state
         state.model = model
-        state.feature_engineer = feature_engineer
         state.last_trained = datetime.now()
         state.is_ready = True
         

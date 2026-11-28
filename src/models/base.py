@@ -1,5 +1,5 @@
 """
-Base model interface for single models and ensembles
+Abstract model interface (train / predict / save / load)
 """
 from abc import ABC, abstractmethod
 import pandas as pd

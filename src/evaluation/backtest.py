@@ -168,7 +168,8 @@ def max_drawdown(returns: pd.Series) -> float:
 
 def sharpe(returns: np.ndarray, periods_per_year: float) -> float:
     sd = returns.std(ddof=1)
-    return float(returns.mean() / sd * np.sqrt(periods_per_year)) if sd > 0 else 0.0
+    # tolerance: a constant series has float-rounding std ~1e-18, not exactly 0
+    return float(returns.mean() / sd * np.sqrt(periods_per_year)) if sd > 1e-12 else 0.0
 
 
 def performance_stats(res: pd.DataFrame, horizon: int, col: str = 'net') -> Dict[str, float]:

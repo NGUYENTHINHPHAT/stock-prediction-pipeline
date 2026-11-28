@@ -3,6 +3,7 @@ Model training with proper time-series validation
 """
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime, timedelta
 from sklearn.metrics import (
@@ -37,29 +38,45 @@ class ModelTrainer:
         self,
         df: pd.DataFrame,
         train_size: float = 0.7,
-        val_size: float = 0.15
+        val_size: float = 0.15,
+        gap: Optional[int] = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        Split data chronologically for time series
-        
+        Split data chronologically on unique dates, with a purge gap.
+
+        Splitting on dates (not rows) keeps every symbol for a given day in the
+        same set. ``gap`` trading days are dropped before the validation and
+        test sets: labels look ``prediction_horizon`` days ahead, so without the
+        gap the last training labels would overlap the next set's period.
+
         Args:
             df: DataFrame with 'date' column
-            train_size: Proportion for training
-            val_size: Proportion for validation
-            
+            train_size: Proportion of dates for training
+            val_size: Proportion of dates for validation
+            gap: Trading days purged between sets (defaults to
+                 settings.prediction_horizon)
+
         Returns:
             (train_df, val_df, test_df)
         """
-        df = df.sort_values('date').reset_index(drop=True)
-        
-        n = len(df)
+        if gap is None:
+            gap = settings.prediction_horizon
+
+        df = df.sort_values(['date', 'symbol'] if 'symbol' in df else 'date').reset_index(drop=True)
+        dates = np.array(sorted(df['date'].unique()))
+
+        n = len(dates)
         train_end = int(n * train_size)
         val_end = int(n * (train_size + val_size))
-        
-        train_df = df.iloc[:train_end]
-        val_df = df.iloc[train_end:val_end]
-        test_df = df.iloc[val_end:]
-        
+
+        train_dates = dates[:train_end]
+        val_dates = dates[train_end + gap:val_end]
+        test_dates = dates[val_end + gap:]
+
+        train_df = df[df['date'].isin(train_dates)]
+        val_df = df[df['date'].isin(val_dates)]
+        test_df = df[df['date'].isin(test_dates)]
+
         log.info(f"Time series split: Train={len(train_df)}, Val={len(val_df)}, Test={len(test_df)}")
         log.info(f"Train period: {train_df['date'].min()} to {train_df['date'].max()}")
         log.info(f"Val period: {val_df['date'].min()} to {val_df['date'].max()}")
@@ -233,7 +250,8 @@ class ModelTrainer:
             # Log feature importance if available
             importance = model.get_feature_importance()
             if importance is not None:
-                importance_path = "feature_importance.csv"
+                importance_path = "results/feature_importance.csv"
+                Path("results").mkdir(exist_ok=True)
                 importance.to_csv(importance_path, index=False)
                 mlflow.log_artifact(importance_path)
             
@@ -274,7 +292,7 @@ class ModelTrainer:
             df: Full feature-engineered DataFrame with date column.
             model_params: XGBoost params dict (uses model defaults if None).
             n_splits: Number of folds (default 5).
-            gap: Rows to skip between train end and test start (defaults to
+            gap: Trading days purged between train end and test start (defaults to
                  settings.prediction_horizon).
             target_col: Name of the target column.
             early_stopping_rounds: Early stopping patience per fold.
@@ -287,23 +305,33 @@ class ModelTrainer:
         if gap is None:
             gap = settings.prediction_horizon
 
-        df = df.sort_values('date').reset_index(drop=True)
+        df = df.sort_values(['date', 'symbol'] if 'symbol' in df else 'date').reset_index(drop=True)
         X, y = self.prepare_features_target(df, target_col)
         dates = df['date']
 
+        # Split on unique dates so all symbols for a day stay in one fold, and
+        # purge `gap` trading days between train and test (labels look
+        # prediction_horizon days ahead).
+        unique_dates = np.array(sorted(dates.unique()))
         tscv = TimeSeriesSplit(n_splits=n_splits, gap=gap)
+
+        def rows_for(date_idx):
+            return np.flatnonzero(dates.isin(unique_dates[date_idx]).to_numpy())
 
         fold_metrics: List[Dict] = []
 
-        log.info(f"Walk-forward validation: {n_splits} folds, gap={gap} rows")
+        log.info(f"Walk-forward validation: {n_splits} folds, gap={gap} trading days")
         log.info(f"{'Fold':<6} {'Train':>8} {'Test':>8} {'Accuracy':>10} {'Precision':>10} {'AUC':>8}")
         log.info("-" * 55)
 
-        for fold, (train_idx, test_idx) in enumerate(tscv.split(X), 1):
-            # Internal val set = last 15% of training for early stopping
-            val_split = int(len(train_idx) * 0.85)
-            internal_train_idx = train_idx[:val_split]
-            internal_val_idx   = train_idx[val_split:]
+        for fold, (train_d, test_d) in enumerate(tscv.split(unique_dates), 1):
+            # Internal val set = last 15% of training dates for early stopping,
+            # also purged so its labels don't leak into the fit window.
+            cut = int(len(train_d) * 0.85)
+            internal_train_idx = rows_for(train_d[:max(cut - gap, 1)])
+            internal_val_idx   = rows_for(train_d[cut:])
+            train_idx = rows_for(train_d)
+            test_idx  = rows_for(test_d)
 
             X_train = X.iloc[internal_train_idx]
             y_train = y.iloc[internal_train_idx]

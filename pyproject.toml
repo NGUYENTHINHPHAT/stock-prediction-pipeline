@@ -1,0 +1,11 @@
+[project]
+name = "stock-prediction-pipeline"
+version = "1.0.0"
+description = "Leakage-safe ML pipeline for weekly stock direction, with a cost-aware backtest and significance tests"
+requires-python = ">=3.9"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

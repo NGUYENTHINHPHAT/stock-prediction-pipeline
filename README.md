@@ -8,411 +8,191 @@ app_port: 7860
 pinned: false
 ---
 
-# Tech Stock Prediction with Technical Analysis
+# Stock Direction Prediction: an honest ML backtest
 
-> **Live Demo:** [Stock Prediction Dashboard](https://PhatNguyen39-Stock-Prediction-Pipeline.hf.space/dashboard)
+[![Tests](https://github.com/NGUYENTHINHPHAT/stock-prediction-pipeline/actions/workflows/tests.yml/badge.svg)](https://github.com/NGUYENTHINHPHAT/stock-prediction-pipeline/actions/workflows/tests.yml)
+![Python](https://img.shields.io/badge/python-3.9%2B-blue)
+![XGBoost](https://img.shields.io/badge/model-XGBoost-orange)
+![FastAPI](https://img.shields.io/badge/serving-FastAPI-009688)
 
-> **Disclaimer:** This project is for **demonstration and portfolio purposes only**. **This is not financial advice and should not be used for trading decisions.**
+**Live demo → [stock prediction dashboard](https://PhatNguyen39-Stock-Prediction-Pipeline.hf.space/dashboard)**
 
-Production-ready ML pipeline for tech stock price direction prediction using XGBoost, with a full experiment tracking and hyperparameter tuning workflow.
+This is an end-to-end machine-learning pipeline that predicts whether AAPL, MSFT, GOOGL, AMZN and TSLA will be up or down a week from now. It then tests that prediction the way a quant research team would: leakage-safe walk-forward evaluation, a backtest with transaction costs, naive baselines, and permutation tests for statistical significance.
 
-## Scope
+**The result is negative, and that is the point.** On public technical indicators for the most heavily traded stocks in the world, the model has **no statistically significant edge**: AUC 0.49, p = 0.77. It does not beat simply predicting "up" every week. The project shows how to reach that conclusion rigorously instead of reporting a lucky 57% accuracy from a leaky split.
 
-The model is trained on **5 large-cap tech stocks**: AAPL, MSFT, GOOGL, AMZN, TSLA using **5 years** of historical data.
-
-Predictions are **5 trading days ahead** (weekly direction).
-
-Features include both technical indicators and external market signals (VIX, SPY, XLK sector ETF, earnings proximity). The project's focus is **honest evaluation**: a purged walk-forward backtest with transaction costs, naive baselines, and significance tests. The conclusion is that these features do **not** carry a statistically significant edge on large-cap tech. See [Backtest Results](#-backtest-results).
-
-## 🎯 Features
-
-- **Automated Data Pipeline**: Fetches OHLCV data from Yahoo Finance (5 years lookback)
-- **Feature Engineering**: 47+ features across technical indicators, external market signals, and time features
-- **External Market Signals**: VIX fear index, SPY/XLK returns, days to next earnings
-- **Hyperparameter Tuning**: Optuna-based search with 50+ trials, saves best params automatically
-- **Walk-Forward Validation**: 5-fold expanding-window cross-validation for honest performance estimates
-- **Backtest with Costs**: Long/flat and market-neutral strategies vs buy-and-hold, momentum and logistic-regression baselines — Sharpe, drawdown, turnover, cost sensitivity
-- **Significance Testing**: Permutation tests for overall skill (AUC) and stock-picking skill (weekly rank IC), plus a block-bootstrap CI on the Sharpe difference
-- **Research Dashboard**: Shows the backtest verdict, equity curves and baselines next to live predictions, with each P(up) set against the stock's historical base rate
-- **Time-Series Safe**: Chronological train/val/test split, no data leakage
-- **XGBoost Classifier**: Binary classification (UP/DOWN), probability output with confidence labels
-- **Web Dashboard**: Built-in browser UI — pick from the 5 supported stocks
-- **FastAPI Serving**: Production REST API, prediction uses only 90 days of data (fast)
-- **MLflow Tracking**: Full experiment history — params, metrics, feature importance per run
-- **Docker Support**: Containerized deployment
-- **Hugging Face Spaces**: Free cloud deployment with Docker SDK
-
-## 📁 Project Structure
-
-```
-stock-prediction-pipeline/
-├── src/
-│   ├── data/
-│   │   ├── fetcher.py          # Data fetching (Yahoo Finance)
-│   │   ├── features.py         # Feature engineering + external signals
-│   │   └── validator.py        # Data validation & cleaning
-│   ├── models/
-│   │   ├── base.py             # Abstract model interface
-│   │   ├── xgboost_model.py    # XGBoost implementation
-│   │   ├── ensemble.py         # Ensemble framework (ready for extension)
-│   │   └── trainer.py          # Training + walk-forward validation
-│   ├── api/
-│   │   ├── main.py             # FastAPI application
-│   │   ├── templates/
-│   │   │   └── dashboard.html  # Web dashboard UI
-│   │   └── static/
-│   │       ├── css/style.css
-│   │       └── js/app.js
-│   └── utils/
-│       ├── config.py           # Configuration (lookback, horizon, symbols)
-│       └── logger.py           # Logging setup
-├── models/
-│   ├── saved/
-│   │   └── latest_model.pkl    # Active model loaded by the API
-│   └── best_params.json        # Best hyperparams from last tune.py run
-├── data/                       # Data storage (gitignored)
-├── logs/                       # Application logs (gitignored)
-├── mlruns/                     # MLflow experiment history (gitignored)
-├── train.py                    # Train with best_params.json (auto-loaded)
-├── tune.py                     # Optuna hyperparameter search + retrain
-├── validate.py                 # Walk-forward cross-validation
-├── check_importance.py         # Print feature importance from saved model
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── README.md
-```
-
-## 🚀 Quick Start
-
-### 1. Installation
-
-```bash
-git clone <repo-url>
-cd stock-prediction-pipeline
-
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-pip install -r requirements.txt
-```
-
-### 2. Recommended Workflow
-
-#### Option A — Tune then train (best results)
-
-```bash
-# Step 1: Search for best hyperparameters (50 trials, ~10–20 min)
-python tune.py
-
-# Step 2: Validate performance across 5 market regimes
-python validate.py
-
-# Step 3: Train is not required — tune.py already saves the model.
-#         Re-run train.py only if you want to retrain on fresh data
-#         using the saved best params:
-python train.py
-```
-
-#### Option B — Train directly with defaults
-
-```bash
-python train.py
-```
-
-`train.py` automatically loads `models/best_params.json` if it exists.
-If the file is missing or empty, it falls back to XGBoost defaults.
-
-### 3. Start the API
-
-```bash
-uvicorn src.api.main:app --host 0.0.0.0 --port 8000
-```
-
-### 4. Open the Dashboard
-
-```
-http://localhost:8000/dashboard
-```
-
-From the dashboard you can:
-- **See model status** — indicator shows whether a model is loaded
-- **Train the model** — click "Train Model" and poll until complete
-- **Get predictions** — toggle stocks, hit submit, see direction + probability + confidence badge
-
-Only `medium` and `high` confidence predictions (probability > 60%) are worth acting on.
-
-### 5. Make Predictions via API
-
-```bash
-curl -X POST "http://localhost:8000/predict" \
-  -H "Content-Type: application/json" \
-  -d '{"symbols": ["AAPL", "MSFT"]}'
-```
-
-Response:
-```json
-{
-  "predictions": [
-    {
-      "symbol": "AAPL",
-      "current_price": 185.23,
-      "predicted_direction": 1,
-      "probability": 0.6234,
-      "confidence": "medium",
-      "timestamp": "2026-05-06T10:30:00"
-    }
-  ],
-  "model_name": "xgboost",
-  "model_last_trained": "2026-05-06T09:00:00"
-}
-```
-
-**Confidence labels:**
-- `high` → probability > 70%
-- `medium` → probability 60–70%
-- `low` → probability ≤ 60% — ignore these signals
-
-## 🔧 Scripts
-
-### `tune.py` — Hyperparameter search
-
-```bash
-python tune.py                            # 50 trials, optimise val_precision
-python tune.py --trials 100               # more trials = better search
-python tune.py --metric val_auc           # optimise AUC instead
-python tune.py --symbols AAPL MSFT        # specific symbols
-```
-
-Runs Optuna search, saves best params to `models/best_params.json`, retrains the final model, saves to `models/saved/latest_model.pkl`.
-
-### `train.py` — Training
-
-```bash
-python train.py                           # auto-loads best_params.json
-python train.py --symbols AAPL MSFT TSLA  # specific symbols
-python train.py --params-file other.json  # explicit params file
-```
-
-### `validate.py` — Walk-forward validation
-
-```bash
-python validate.py           # 5 folds with best_params.json
-python validate.py --folds 8 # more folds
-python validate.py --no-params  # XGBoost defaults
-```
-
-Reports per-fold and average accuracy/precision/AUC with std across market regimes. Does **not** save a model — purely diagnostic.
-
-### `backtest.py` — Strategy backtest vs baselines
-
-```bash
-python backtest.py                                  # 10 bps costs, P(up) > 0.55
-python backtest.py --cost-bps 5 --threshold 0.6
-```
-
-Purged walk-forward predictions → weekly non-overlapping rebalances → net-of-cost returns. Writes `results/backtest_report.md`, `results/backtest_summary.json` and `results/equity_curve.png`.
-
-### `check_importance.py` — Feature importance
-
-```bash
-python check_importance.py
-```
-
-Prints all features ranked by XGBoost importance from the current `latest_model.pkl`.
-
-## 🧠 Understanding the Pipeline
-
-### Data Flow
-
-```
-Yahoo Finance (5 years OHLCV)
-        ↓
-Validation & Cleaning
-        ↓
-Feature Engineering (47+ features)
-        ↓
-Walk-forward / Train-Val-Test Split
-        ↓
-XGBoost Binary Classifier
-        ↓
-REST API → Dashboard
-```
-
-### Features (47+)
-
-**Price** — 1d/5d/10d/20d returns, momentum, HL spread, close position in range
-
-**Volume** — volume change, volume/MA ratio, Volume-Price Trend (VPT)
-
-**Technical Indicators** — SMA(20), EMA(20), MACD, RSI(14), Bollinger Bands (width + position), Stochastic K/D, ATR(14)
-
-**Lag Features** — close, volume, return lagged at [1, 2, 3, 5, 10] days
-
-**Time** — day of week (+ cyclical encoding), day of month, month, quarter
-
-**External Market Signals** (fetched live during training and prediction):
-- `vix` — CBOE VIX fear index (market-wide risk regime)
-- `spy_return_1d`, `spy_return_5d` — broad market momentum
-- `xlk_return_1d`, `xlk_return_5d` — tech sector momentum
-- `days_to_earnings` — days until next earnings announcement (0–90, capped)
-
-### Prediction at Inference Time
-
-Training uses 5 years of data to learn patterns. Predicting uses only the **last 90 days** to compute feature values for the most recent row — fast and efficient.
-
-### Preventing Data Leakage
-
-- Chronological split only — no shuffling
-- **Purged splits by date, not by row** (`backtest.py`): all symbols for a day land in the same fold, and a gap of `horizon` trading days separates train from test, so no training label overlaps the test period
-- In the stock-picking (rank IC) test, returns are shuffled only *within* each date, so market-wide up/down weeks can't masquerade as skill
-- External features fetched using only past data at each point in time
-
-## 📊 API Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/health` | Health check |
-| GET | `/dashboard` | Web UI |
-| POST | `/predict` | Get predictions for symbols |
-| POST | `/train` | Trigger model training |
-| GET | `/training/status` | Poll training progress |
-| GET | `/model/info` | Current model metadata |
-
-## 📈 MLflow Tracking
-
-Every `train.py` and `tune.py` run is automatically logged.
-
-```bash
-mlflow ui --port 5001
-# Open http://localhost:5001
-```
-
-> **macOS note:** Port 5000 is used by AirPlay Receiver. Use `--port 5001`.
-
-Each run stores:
-- **Params**: model type, feature count, data sizes
-- **Metrics**: accuracy, precision, AUC for train / val / test splits
-- **Artifacts**: `feature_importance.csv`, trained model pickle
-
-## 📉 Backtest Results
-
-Out-of-sample **Nov 2022 → Nov 2026**, 5 stocks, 5-fold purged walk-forward, 5-day horizon, weekly non-overlapping rebalances, **10 bps** cost per unit turnover. Full report: [`results/backtest_report.md`](results/backtest_report.md).
-
-![Out-of-sample equity curves](results/equity_curve.png)
-
-**Does the model beat naive baselines?**
-
-| Model | Accuracy | AUC |
-|---|---|---|
-| Always predict UP | **55.2%** | 0.500 |
-| Momentum (sign of 5d return) | 50.6% | 0.495 |
-| Logistic regression | 48.5% | 0.492 |
-| XGBoost (tuned) | 49.4% | 0.496 |
-
-**Does it make money after costs?**
-
-| Strategy | Net Sharpe | CAGR | Max DD | Avg exposure |
-|---|---|---|---|---|
-| Buy & hold (equal weight) | **1.22** | **30.9%** | -26.2% | 100% |
-| Momentum long/flat | 0.72 | 10.6% | -18.9% | 56% |
-| LogReg long/flat | 0.31 | 2.5% | -15.3% | 34% |
-| XGBoost long/flat (P > 0.55) | 0.39 | 1.6% | **-8.4%** | 10% |
-| XGBoost long/short rank | -0.39 | -5.7% | -33.2% | 100% |
-
-**Is the edge real?**
-- **Overall skill.** Permutation test on AUC over non-overlapping weeks: AUC 0.498, **p = 0.54**.
-- **Stock-picking skill.** Mean weekly rank IC (Spearman correlation of score vs. forward return across the 5 stocks), with returns shuffled within each date: IC −0.008, **p = 0.62**.
-- **Block bootstrap**, Sharpe(XGBoost long/flat) − Sharpe(buy & hold): **−0.83, 95% CI [−2.02, +0.28]**.
-- No VIX regime (low / mid / high) shows AUC meaningfully above 0.5.
-
-### Interpretation
-
-- **The model has no detectable edge.** It loses to "always predict UP" on accuracy, and its AUC is within noise of 0.5. In a 4-year bull market for mega-cap tech, the base rate *is* the signal.
-- **The model mostly sits in cash.** It's invested only 10% of the time, which explains its small drawdown. That isn't skill: it earns 1.6% a year against 30.9% for buy & hold.
-- **The market-neutral version is the cleanest test of stock-picking skill**, since it removes market direction. It loses money, which matches the slightly negative rank IC.
-- **Tuning can't rescue it.** Retuning on 5 years of data, early stopping keeps only ~3 trees, because extra trees don't improve validation loss. With that few trees, many stocks get identical probabilities.
-- **Testing the test.** An earlier version shuffled labels within each date but reported a pooled AUC. That mismatch once produced "p = 0.02" for an AUC *below* 0.5. Splitting it into two tests, each statistic matched to its own null, fixed it.
-- **Why earlier numbers looked better (52–57%):** three likely contributors. (1) `validate.py` splits by *row* with a 5-row gap; with 5 symbols per day, that's about 1 day against a 5-day label, so boundary labels overlap. (2) Hyperparameters were chosen by Optuna on the same history, which adds selection bias. (3) A single short test window is noisy, with ±3pp swings between folds. `backtest.py` splits by date with a full horizon purge and reports results across 4 years.
-
-This matches what the Efficient Market Hypothesis predicts for public technical indicators on the most heavily traded stocks in the world. A model claiming 80%+ accuracy here almost certainly has leakage.
-
-**What could plausibly add signal:** a wider cross-section (100+ stocks) with a ranking target, excess-vs-sector returns instead of raw direction, alternative data (earnings surprises, news sentiment, options-implied skew), or less efficient universes (small caps).
-
-| Ops metric | Value |
-|---|---|
-| Training time | 3–10 min (with tuning) |
-| Prediction latency | < 200ms |
-
-## 🔧 Configuration
-
-Key settings in `src/utils/config.py` (can be overridden via `.env`):
-
-```bash
-SYMBOLS=AAPL,MSFT,GOOGL,AMZN,TSLA   # stocks to train on
-LOOKBACK_DAYS=1825                    # 5 years of training data
-PREDICTION_HORIZON=5                  # predict 5 trading days ahead
-FEATURE_WINDOW=20                     # rolling window for indicators
-```
-
-## 🐳 Docker Deployment
-
-```bash
-docker-compose up -d
-docker-compose logs -f
-docker-compose down
-```
-
-## ☁️ Deploy to Hugging Face Spaces (Free)
-
-### 1. Train locally and commit the model
-
-```bash
-python train.py
-git add models/saved/latest_model.pkl models/best_params.json
-git commit -m "Update trained model"
-git push
-```
-
-### 2. Create a Space and sync from GitHub
-
-1. Go to [huggingface.co/new-space](https://huggingface.co/new-space), choose **Docker** SDK
-2. Add your HF token as a GitHub secret (`HF_TOKEN`) in **repo Settings → Secrets → Actions**
-3. Edit `.github/workflows/sync-to-hf.yml` — replace `YOUR_HF_USERNAME` with your username
-4. In the Space **Settings → Variables**, add `DISABLE_TRAINING=true`
-
-The pre-trained model is loaded on startup. To update, retrain locally, commit, and push.
-
-## 🔍 Common Issues
-
-**`403` on `http://localhost:5000` (MLflow UI)**
-→ macOS AirPlay uses port 5000. Run `mlflow ui --port 5001` instead.
-
-**All predictions show `low` confidence**
-→ Expected when market has no clear directional signal. Only act on `medium`/`high` confidence predictions.
-
-**Accuracy stuck at ~50% / Accuracy equals Precision**
-→ Model may be predicting all UP. Re-tune with `python tune.py --metric val_precision`.
-
-**Training fails with memory error**
-→ Reduce `LOOKBACK_DAYS` in `.env` or use fewer symbols.
-
-**API returns 503**
-→ No model loaded. Run `python train.py` first or call `POST /train`.
-
-## 📚 Resources
-
-- [XGBoost Documentation](https://xgboost.readthedocs.io/)
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [MLflow Documentation](https://mlflow.org/docs/latest/index.html)
-- [Optuna Documentation](https://optuna.readthedocs.io/)
-- [Time Series Cross-Validation](https://scikit-learn.org/stable/modules/cross_validation.html#time-series-split)
-
-## 📄 License
-
-MIT License — free to use for portfolio and learning purposes.
+![Research dashboard](docs/images/dashboard.png)
 
 ---
 
-**Built for ML Engineer Portfolio**
-Demonstrates a production-grade ML pipeline: data ingestion, feature engineering with external signals, hyperparameter tuning, honest time-series evaluation, experiment tracking, and REST API serving.
+## Key results
+
+Out-of-sample **Nov 2022 → Nov 2026**, 5-fold purged walk-forward, 5-day horizon, weekly non-overlapping rebalances, **10 bps** cost per unit of turnover. Full report: [`results/backtest_report.md`](results/backtest_report.md).
+
+| Model | Accuracy | AUC |
+|---|---|---|
+| Always predict UP (baseline) | **55.1%** | 0.500 |
+| Momentum: sign of 5-day return | 50.7% | 0.497 |
+| Logistic regression | 49.0% | 0.496 |
+| **XGBoost (tuned)** | 50.0% | 0.494 |
+
+| Strategy (net of costs) | Sharpe | CAGR | Max drawdown | Time invested |
+|---|---|---|---|---|
+| Buy & hold, equal weight | **1.08** | **27.1%** | −27.8% | 100% |
+| Momentum long/flat | 0.71 | 10.5% | −13.8% | 54% |
+| XGBoost long/flat (P(up) > 0.55) | 0.65 | 4.6% | −13.5% | 18% |
+| XGBoost long/short, market-neutral | −0.22 | −3.8% | −24.3% | 100% |
+
+**Is any edge real?**
+
+| Test | Statistic | p-value |
+|---|---|---|
+| Overall skill: AUC, labels permuted (1,010 non-overlapping obs) | AUC 0.485 vs null 0.499 | **0.77** |
+| Stock-picking skill: mean weekly rank IC, returns shuffled *within* each date | IC −0.018 | **0.69** |
+| Block bootstrap, Sharpe(model) − Sharpe(buy & hold) | −0.43, 95% CI [−1.80, +0.59] | n/a |
+
+**Reading the results**
+- **The model doesn't beat the base rate.** In a 4-year bull market for mega-cap tech, "always up" was right 55% of the time, and nothing here beats it.
+- **The lower drawdown isn't skill.** The long/flat strategy sits in cash 82% of the time, which is why its drawdown is smaller. Buy & hold still earned roughly 6× the return.
+- **The cleanest test of stock picking fails.** The market-neutral version removes market direction, and it loses money, which matches the slightly negative rank IC.
+- **This is what market efficiency predicts.** Freely available price and volume indicators on the most-traded stocks shouldn't carry an edge. A model claiming 80% accuracy here almost certainly has leakage.
+
+---
+
+## What this project demonstrates
+
+| Area | Where to look |
+|---|---|
+| **Leakage-safe time-series validation.** Splits by date, not row, with a purge gap equal to the label horizon. The early-stopping slice is purged too. | [`src/models/trainer.py`](src/models/trainer.py), [`tests/test_leakage.py`](tests/test_leakage.py) |
+| **Quant backtesting.** Non-overlapping rebalances, turnover-based costs, Sharpe, CAGR, max drawdown, cost sensitivity, market-neutral long/short. | [`src/evaluation/backtest.py`](src/evaluation/backtest.py) |
+| **Statistical inference.** Permutation tests matched to the right null (full shuffle for AUC, within-date shuffle for rank IC) and a moving-block bootstrap for the Sharpe difference. | [`src/evaluation/backtest.py`](src/evaluation/backtest.py), [`tests/test_backtest.py`](tests/test_backtest.py) |
+| **Baselines before models.** Always-up, momentum and logistic regression go through the same pipeline as XGBoost. | [`scripts/backtest.py`](scripts/backtest.py) |
+| **Feature engineering.** 52 features: returns, momentum, RSI, MACD, Bollinger, ATR, stochastic, lags, calendar, plus VIX, SPY, the XLK sector ETF and days to earnings. | [`src/data/features.py`](src/data/features.py) |
+| **ML engineering.** Optuna tuning, MLflow tracking, config via pydantic-settings, one shared pipeline for the CLI and the API. | [`src/pipeline.py`](src/pipeline.py), [`scripts/`](scripts) |
+| **Serving & product.** A FastAPI service and a dashboard with a hand-built SVG chart. Each prediction is shown against the stock's base rate, not as a fake "confidence". | [`src/api/`](src/api) |
+| **Testing & delivery.** 22 offline pytest tests, GitHub Actions CI, Docker, automatic deploy to Hugging Face Spaces. | [`tests/`](tests), [`.github/workflows/`](.github/workflows) |
+
+---
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Yahoo Finance<br/>5y daily OHLCV] --> B[Validate & clean]
+    M[VIX · SPY · XLK<br/>earnings dates] --> C
+    B --> C[52 features<br/>+ 5-day direction label]
+    C --> D[Purged walk-forward<br/>train / predict]
+    D --> E[Backtest vs baselines<br/>costs · Sharpe · drawdown]
+    E --> F[Permutation tests<br/>& bootstrap]
+    C --> G[Train final model]
+    G --> H[FastAPI + dashboard]
+    F --> H
+```
+
+### Preventing look-ahead bias
+
+The label at day *t* uses the close at *t + 5*. That creates three ways to leak information, each handled explicitly and covered by a test:
+
+1. **Split by date, not by row.** With 5 stocks per day, a row-based split can put AAPL's Monday in training and MSFT's Monday in test. All splits work on unique dates, so every day stays whole.
+2. **Purge the boundary.** The last training labels look 5 days ahead, into the test period. So 5 trading days are dropped between train/validation/test sets and inside each walk-forward fold, including the early-stopping slice.
+3. **Features only use the past.** A test recomputes every feature with the future rows deleted and checks that no historical value changes.
+
+### Backtest design
+
+- **Predictions:** every out-of-sample prediction comes from a model trained only on earlier data, using a 5-fold expanding window.
+- **Holding periods:** positions rebalance every 5 trading days, so holding periods never overlap and returns are independent.
+- **Costs:** 10 bps × |Δweight| at each rebalance, with a sensitivity table from 0 to 20 bps.
+- **Significance:** tests use only non-overlapping weeks. Overlapping 5-day labels are autocorrelated and would make p-values look better than they are.
+
+### Mistakes caught along the way
+
+- **Row-based split leak.** An early version split by row with a 5-row gap, which is only about one trading day against a 5-day label. Fixing it took the reported accuracy from about 52–57% down to the base rate.
+- **Mismatched permutation test.** One version shuffled labels within each date but scored a pooled AUC, so the null distribution didn't match the statistic. It reported p = 0.02 for an AUC *below* 0.5. It's now two tests, each with its own correct null.
+- **Edge case in `sharpe()`.** A constant return series has a floating-point standard deviation of about 1e-18, not exactly 0, so the function returned an enormous number instead of 0. A unit test caught it.
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/NGUYENTHINHPHAT/stock-prediction-pipeline.git
+cd stock-prediction-pipeline
+python -m venv venv && source venv/bin/activate
+make install          # pip install -r requirements.txt, creates .env
+```
+
+| Command | What it does |
+|---|---|
+| `make test` | Run the test suite (offline, ~6s) |
+| `make backtest` | Walk-forward backtest + significance tests → `results/` (~1 min) |
+| `make validate` | Purged walk-forward CV: accuracy / precision / AUC per fold |
+| `make tune` | Optuna search on the validation split → `models/best_params.json` |
+| `make train` | Train the production model → `models/saved/latest_model.pkl` |
+| `make serve` | API + dashboard at <http://localhost:8000/dashboard> |
+| `make docker-up` | Same, in Docker |
+
+Settings live in `.env` (see [`.env.example`](.env.example)): `SYMBOLS`, `LOOKBACK_DAYS=1825`, `PREDICTION_HORIZON=5`. Every training run is logged to MLflow; browse them with `mlflow ui --port 5001`.
+
+### API
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/predict` | P(up) per symbol, with base rate, edge, rank and signal label |
+| `GET` | `/backtest` | Full out-of-sample backtest summary (JSON) |
+| `GET` | `/dashboard` | Research dashboard |
+| `GET` | `/model/info` | Model metadata and top features |
+| `GET` | `/health` | Liveness check |
+| `POST` | `/train` | Retrain in the background (disabled on the public demo) |
+
+```bash
+curl -X POST localhost:8000/predict -H "Content-Type: application/json" \
+     -d '{"symbols": ["AAPL", "MSFT"]}'
+```
+
+```json
+{
+  "symbol": "AAPL",
+  "p_up": 0.524,
+  "base_rate": 0.571,
+  "edge": -0.047,
+  "rank": 1,
+  "signal": "weak tilt"
+}
+```
+
+`p_up` alone is misleading: 52% sounds bullish until you see that this stock rose 57% of the time anyway. So each prediction comes with the stock's historical **base rate** and the **edge** over it.
+
+---
+
+## Project structure
+
+```
+├── src/
+│   ├── pipeline.py            # build_dataset() / train_and_save(): shared by CLI and API
+│   ├── data/                  # fetcher (Yahoo Finance), validator, feature engineering
+│   ├── models/                # XGBoost wrapper, trainer with purged splits & walk-forward CV
+│   ├── evaluation/backtest.py # OOS predictions, strategies, costs, metrics, significance tests
+│   ├── api/                   # FastAPI app, dashboard template, JS chart, CSS
+│   └── utils/                 # settings (pydantic-settings), logging (loguru)
+├── scripts/                   # train · validate · tune · backtest (python -m scripts.<name>)
+├── tests/                     # leakage, backtest-engine and API contract tests
+├── results/                   # backtest report, summary JSON, equity curve, feature importance
+├── models/                    # tuned params + the model served by the API
+├── Dockerfile · docker-compose.yml · Makefile · pyproject.toml
+└── .github/workflows/         # CI tests + deploy to Hugging Face Spaces
+```
+
+---
+
+## Where a real edge might come from
+
+The infrastructure here is reusable. The inputs are the weak link. Promising next steps:
+
+- **A wider universe:** rank 100+ stocks cross-sectionally. With only 5 names, any stock-picking test has very little statistical power.
+- **A better target:** predict return *relative to the sector*, not raw direction, so market beta stops dominating the label.
+- **Alternative data:** earnings surprises, analyst revisions, news sentiment, options-implied skew.
+- **Less efficient markets:** small caps and less-followed names.
+
+---
+
+> **Disclaimer:** for research and portfolio purposes only. This is not financial advice and should not be used for trading decisions.

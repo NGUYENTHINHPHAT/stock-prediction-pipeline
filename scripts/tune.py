@@ -1,46 +1,24 @@
 """
 Hyperparameter tuning with Optuna.
-Searches for the best XGBoost params, saves them to models/best_params.json,
-then retrains and saves the final model.
+Searches XGBoost params on the purged validation split (never the test set),
+saves them to models/best_params.json, then retrains and saves the final model.
 
 Usage:
-    python tune.py                        # 50 trials, default symbols
-    python tune.py --trials 100           # more trials
-    python tune.py --metric val_precision # optimize precision instead of AUC
-    python tune.py --symbols AAPL MSFT   # specific symbols
+    python -m scripts.tune                         # 50 trials
+    python -m scripts.tune --trials 100
+    python -m scripts.tune --metric val_precision  # optimize precision instead of AUC
 """
 import argparse
 import json
-from pathlib import Path
-from datetime import datetime
 
 import optuna
 import optuna.logging
 
 from src.utils.logger import log
 from src.utils.config import settings
-from src.data.fetcher import DataFetcher
-from src.data.validator import DataValidator
-from src.data.features import FeatureEngineer
 from src.models.xgboost_model import XGBoostModel
 from src.models.trainer import ModelTrainer
-
-
-def load_data(symbols: list, lookback_days: int):
-    from datetime import datetime, timedelta
-    start_date = datetime.now() - timedelta(days=lookback_days)
-    fetcher = DataFetcher(use_alpaca=False)
-    df = fetcher.fetch(symbols=symbols, start_date=start_date)
-
-    validator = DataValidator()
-    _, _ = validator.validate(df)
-    df = validator.clean_data(df)
-
-    fe = FeatureEngineer(window=settings.feature_window)
-    df = fe.engineer_features(df, create_target=True, target_horizon=settings.prediction_horizon)
-
-    log.info(f"Data ready: {df.shape[0]} rows, {df.shape[1]} columns")
-    return df
+from src.pipeline import PARAMS_FILE, build_dataset, train_and_save
 
 
 def make_objective(df, metric: str):
@@ -80,7 +58,7 @@ def main(symbols, lookback_days, n_trials, metric):
     log.info(f"Trials: {n_trials}  |  Metric: {metric} (maximize)")
     log.info("=" * 70)
 
-    df = load_data(symbols, lookback_days)
+    df = build_dataset(symbols, lookback_days)
 
     # Suppress per-trial Optuna output — we print our own summary
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -95,36 +73,13 @@ def main(symbols, lookback_days, n_trials, metric):
     for k, v in best.params.items():
         log.info(f"    {k}: {v}")
 
-    # Save best params so train.py can load them later
-    params_path = Path("models/best_params.json")
-    params_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(params_path, "w") as f:
-        json.dump(best.params, f, indent=2)
-    log.info(f"\nBest params saved → {params_path}")
+    # Save best params so the train / validate / backtest scripts pick them up
+    PARAMS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PARAMS_FILE.write_text(json.dumps(best.params, indent=2))
+    log.info(f"\nBest params saved -> {PARAMS_FILE}")
 
-    # Retrain with best params on full train+val, evaluate on test
     log.info("\nRetraining final model with best params...")
-    final_model = XGBoostModel(model_name="xgboost_tuned", params=best.params)
-    trainer = ModelTrainer(mlflow_tracking=True)
-
-    all_metrics = trainer.train_model(
-        model=final_model,
-        df=df,
-        target_col="target_direction",
-        train_size=0.7,
-        val_size=0.15,
-        log_mlflow=True,
-        early_stopping_rounds=30,
-        verbose=False,
-    )
-
-    # Save
-    model_dir = Path("models/saved")
-    model_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    final_model.save(str(model_dir / f"model_tuned_{ts}.pkl"))
-    final_model.save(str(model_dir / "latest_model.pkl"))
-    log.info(f"Saved tuned model → models/saved/latest_model.pkl")
+    _, all_metrics = train_and_save(df, params=best.params, model_name="xgboost_tuned")
 
     log.info("\n" + "=" * 70)
     log.info("FINAL MODEL PERFORMANCE")
